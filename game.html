@@ -846,18 +846,20 @@
 
     // ===== END ITEM DROPS & PICKUP =====
 
-    // ===== HELD ITEM DISPLAY =====
-    // Show the currently selected item in your hand
+    // ===== HELD ITEM DISPLAY (Minecraft-style) =====
+    // When holding a block, show the block instead of the gun
+    // When empty or no placeable item, show the gun
     
     let heldItemMesh = null;
     
     /**
      * Update the held item display based on selected slot
+     * Minecraft-style: block replaces gun, shown in lower-right
      */
     function updateHeldItem() {
       // Remove current held item if exists
       if (heldItemMesh) {
-        gun.remove(heldItemMesh);
+        camera.remove(heldItemMesh);
         heldItemMesh = null;
       }
       
@@ -865,19 +867,25 @@
       const selectedItem = inventory.slots[inventory.selectedSlot];
       
       if (selectedItem) {
+        // Hide gun, show held block
+        gun.visible = false;
+        
         const itemDef = itemTypes[selectedItem.type];
         const color = itemDef ? parseInt(itemDef.color.replace('#', '0x')) : 0xffffff;
         
-        // Create held block
+        // Create Minecraft-style held block (larger, tilted, lower-right)
         heldItemMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(0.25, 0.25, 0.25),
+          new THREE.BoxGeometry(0.4, 0.4, 0.4),
           new THREE.MeshStandardMaterial({ color })
         );
         
-        // Position above the gun
-        heldItemMesh.position.set(-0.15, 0.2, -0.1);
-        heldItemMesh.rotation.set(0.3, 0.5, 0.2);
-        gun.add(heldItemMesh);
+        // Position: lower-right of screen, tilted like Minecraft
+        heldItemMesh.position.set(0.5, -0.35, -0.7);
+        heldItemMesh.rotation.set(-0.2, -0.8, 0.1); // Tilted toward camera
+        camera.add(heldItemMesh);
+      } else {
+        // No item selected - show gun
+        gun.visible = true;
       }
     }
 
