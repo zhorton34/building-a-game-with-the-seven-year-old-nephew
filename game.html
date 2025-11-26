@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>My First Fortnite - Gift for My Nephew ❤️</title>
+  <title>Jax's Minecraft - Build Anything! 🎮</title>
   <style>
     body { margin:0; overflow:hidden; font-family: Comic Sans MS, cursive; }
     #info {
@@ -464,6 +464,95 @@
     }
 
     // ===== END PHASE 3 =====
+
+    // ===== COLLISION DETECTION SYSTEM =====
+    // Prevents player from walking through solid objects
+    
+    const PLAYER_RADIUS = 1.5; // Player collision radius
+    const PLAYER_HEIGHT = 5;   // Player eye height
+    
+    /**
+     * Check if a position collides with any solid object
+     * @param {THREE.Vector3} position - Position to check
+     * @returns {boolean} true if collision detected
+     */
+    function checkCollision(position) {
+      const playerX = position.x;
+      const playerZ = position.z;
+      
+      // Check collision with blocks
+      for (const block of blocks) {
+        const dx = playerX - block.position.x;
+        const dz = playerZ - block.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        // Block collision (blocks are 4x4, so radius ~2.8 + player radius)
+        if (dist < 2.8 + PLAYER_RADIUS) {
+          return true;
+        }
+      }
+      
+      // Check collision with tree trunks
+      for (const tree of trees) {
+        const dx = playerX - tree.position.x;
+        const dz = playerZ - tree.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        // Tree trunk collision (trunks are ~2 wide)
+        if (dist < 1.5 + PLAYER_RADIUS) {
+          return true;
+        }
+      }
+      
+      // Check collision with cave walls
+      for (const cave of caves) {
+        // Get cave parts that are solid walls
+        cave.traverse((child) => {
+          if (child.isMesh && child.userData.type === 'stone') {
+            const worldPos = new THREE.Vector3();
+            child.getWorldPosition(worldPos);
+            
+            const dx = playerX - worldPos.x;
+            const dz = playerZ - worldPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            
+            if (dist < 1.5 + PLAYER_RADIUS) {
+              return true;
+            }
+          }
+        });
+      }
+      
+      return false;
+    }
+    
+    /**
+     * Try to move to a new position, with collision detection
+     * Returns the actual position after collision resolution
+     */
+    function tryMove(currentPos, newPos) {
+      // If no collision at new position, allow full movement
+      if (!checkCollision(newPos)) {
+        return newPos.clone();
+      }
+      
+      // Try sliding along X axis only
+      const slideX = new THREE.Vector3(newPos.x, currentPos.y, currentPos.z);
+      if (!checkCollision(slideX)) {
+        return slideX;
+      }
+      
+      // Try sliding along Z axis only
+      const slideZ = new THREE.Vector3(currentPos.x, currentPos.y, newPos.z);
+      if (!checkCollision(slideZ)) {
+        return slideZ;
+      }
+      
+      // Can't move at all - stay in place
+      return currentPos.clone();
+    }
+
+    // ===== END COLLISION DETECTION =====
 
     // Lights
     const sun = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -1109,7 +1198,7 @@
           document.dispatchEvent(event);
         }
 
-        // Arrow key movement
+        // Arrow key movement with COLLISION DETECTION
         direction.z = Number(moveForward) - Number(moveBackward);
         direction.x = Number(moveRight) - Number(moveLeft);
         direction.normalize();
@@ -1119,8 +1208,20 @@
         velocity.y -= 25.0 * delta; // gravity
 
         if (direction.z || direction.x) {
+          // Save current position
+          const oldPos = camera.position.clone();
+          
+          // Try to move
           controls.moveRight(direction.x * 20 * delta);
           controls.moveForward(direction.z * 20 * delta);
+          
+          // Check for collision and resolve
+          const newPos = camera.position.clone();
+          const resolvedPos = tryMove(oldPos, newPos);
+          
+          // Apply resolved position
+          camera.position.x = resolvedPos.x;
+          camera.position.z = resolvedPos.z;
         }
 
         camera.position.y += velocity.y * delta;
