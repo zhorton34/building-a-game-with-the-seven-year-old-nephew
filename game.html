@@ -1092,14 +1092,22 @@
       animateDroppedItems(delta);
 
       if (controls.isLocked && !isPaused) {
-        // WASD aiming - rotate the camera view (uses settings!)
-        const aimSpeed = settings.aimSensitivity;
-        if (aimLeft) camera.rotation.y += aimSpeed * delta;
-        if (aimRight) camera.rotation.y -= aimSpeed * delta;
-        if (aimUp) camera.rotation.x += aimSpeed * delta;
-        if (aimDown) camera.rotation.x -= aimSpeed * delta;
-        // Clamp vertical look so you can't flip upside down
-        camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+        // WASD aiming - simulate mouse movement for PointerLockControls
+        // This works properly with the controls instead of conflicting
+        const aimSpeed = settings.aimSensitivity * 50; // Scale for smooth movement
+        
+        if (aimLeft || aimRight || aimUp || aimDown) {
+          // Create synthetic mouse movement
+          const movementX = (Number(aimRight) - Number(aimLeft)) * aimSpeed * delta;
+          const movementY = (Number(aimDown) - Number(aimUp)) * aimSpeed * delta;
+          
+          // Dispatch synthetic pointermove event that PointerLockControls listens to
+          const event = new MouseEvent('mousemove', {
+            movementX: movementX,
+            movementY: movementY
+          });
+          document.dispatchEvent(event);
+        }
 
         // Arrow key movement
         direction.z = Number(moveForward) - Number(moveBackward);
