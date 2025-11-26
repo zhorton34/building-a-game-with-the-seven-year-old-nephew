@@ -819,13 +819,53 @@
       digDirt() { this.playNoise(0.1, 'lowpass', 800, 'blocks', 0.25); }
       digWood() { this.playTone([200, 150], 0.1, 'square', 'blocks', 0.15); }
       
-      placeBlock() { this.playTone([200, 300], 0.08, 'square', 'blocks', 0.2); }
-      breakBlock() { 
-        this.playNoise(0.15, 'highpass', 1500, 'blocks', 0.3);
-        this.playTone([400, 100], 0.1, 'sawtooth', 'blocks', 0.1);
+      // Satisfying block place "thunk"
+      placeBlock() { 
+        this.playTone([150, 200], 0.06, 'square', 'blocks', 0.25);
+        this.playNoise(0.04, 'lowpass', 600, 'blocks', 0.15);
       }
       
-      mineHit() { this.playNoise(0.05, 'highpass', 3000, 'blocks', 0.15); }
+      // Epic block break with shatter sound!
+      breakBlock() { 
+        this.playNoise(0.2, 'highpass', 1200, 'blocks', 0.35);
+        this.playTone([500, 200, 80], 0.15, 'sawtooth', 'blocks', 0.2);
+        this.playNoise(0.1, 'bandpass', 3000, 'blocks', 0.15); // Glass-like shatter
+      }
+      
+      // Mining hit - varies pitch for interest!
+      mineHit() { 
+        const pitch = 200 + Math.random() * 200; // Random pitch variation
+        this.playNoise(0.05, 'bandpass', 1500 + Math.random() * 1000, 'blocks', 0.2); 
+        this.playTone([pitch, pitch * 0.6], 0.04, 'square', 'blocks', 0.12);
+      }
+      
+      // Metal/stone scrape sound for pickaxe
+      pickaxeHit() {
+        this.playTone([800, 400, 200], 0.08, 'sawtooth', 'blocks', 0.15);
+        this.playNoise(0.04, 'highpass', 3000, 'blocks', 0.2);
+      }
+      
+      // Cool ricochet "bonk" - distance-based volume!
+      ricochet(distance = 0) {
+        // Calculate volume based on distance (quieter when farther away)
+        const maxDist = 50;
+        const distFactor = Math.max(0, 1 - (distance / maxDist));
+        const volume = 0.35 * distFactor;
+        
+        if (volume < 0.02) return; // Too quiet to hear
+        
+        // Lower, more satisfying "thunk/bonk" sound
+        const pitch = 300 + Math.random() * 200; // Lower base pitch (300-500 Hz)
+        this.playTone([pitch, pitch * 0.5], 0.1, 'square', 'blocks', volume);
+        this.playNoise(0.05, 'bandpass', 800, 'blocks', volume * 0.5);
+      }
+      
+      // Extra satisfying explosion for block destruction
+      explosion() {
+        this.playNoise(0.25, 'lowpass', 200, 'blocks', 0.5);
+        this.playTone([100, 40], 0.2, 'sine', 'blocks', 0.35);
+        this.playNoise(0.1, 'bandpass', 800, 'blocks', 0.2); // Debris scatter
+      }
       
       // Player sounds
       hurt() { 
@@ -863,9 +903,17 @@
         this.playNoise(0.05, 'highpass', 2000, 'player', 0.15);
       }
       
-      explosion() {
-        this.playNoise(0.3, 'lowpass', 200, 'blocks', 0.5);
-        this.playTone([100, 30], 0.2, 'sine', 'blocks', 0.3);
+      // Bullet flyby "whoosh" sound
+      playFlyby() {
+        // Quick whoosh sound - filtered noise with pitch sweep
+        this.playNoise(0.15, 'bandpass', 1500, 'player', 0.3);
+        this.playTone([2000, 500], 0.1, 'sine', 'player', 0.1);
+      }
+      
+      // Ricochet hit sound (when bullet hits player)
+      ricochetHit() {
+        this.playTone([300, 100], 0.1, 'sawtooth', 'player', 0.3);
+        this.playNoise(0.08, 'lowpass', 500, 'player', 0.2);
       }
       
       // UI sounds
@@ -929,12 +977,32 @@
     const soundSystem = new SoundSystem();
     // ===== END SOUND SYSTEM =====
 
+    // ===== TEST MODE (for browser automation) =====
+    // Activate with URL parameter: ?testMode=true
+    const urlParams = new URLSearchParams(window.location.search);
+    const TEST_MODE = urlParams.get('testMode') === 'true';
+    if (TEST_MODE) {
+      console.log('🧪 TEST MODE ACTIVE - Pointer Lock disabled, keyboard controls enabled');
+    }
+    
+    // Test mode camera rotation state
+    const testModeCamera = {
+      yaw: 0,   // Left/right rotation
+      pitch: 0, // Up/down rotation
+      rotateLeft: false,
+      rotateRight: false,
+      rotateUp: false,
+      rotateDown: false,
+      sensitivity: 0.03
+    };
+
     // Scene setup
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb); // sky blue
-    scene.fog = new THREE.FogExp2(0x87ceeb, 0.002);
+    // Stronger fog that blends with sky - makes world feel INFINITE!
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 200); // Linear fog: starts at 50, fully opaque at 200
 
-    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 500);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(innerWidth, innerHeight);
     renderer.shadowMap.enabled = true;
@@ -943,6 +1011,11 @@
     // Lock pointer when clicked (but not when paused or clicking menu)
     const controls = new PointerLockControls(camera, document.body);
     document.body.addEventListener('click', (e) => {
+      if (TEST_MODE) {
+        // In test mode, don't lock pointer - just initialize sound
+        soundSystem.init();
+        return;
+      }
       if (!isPaused && !e.target.closest('#pauseMenu')) {
         // Initialize sound system on first interaction (browser requirement)
         soundSystem.init();
@@ -950,24 +1023,120 @@
       }
     });
 
-    // Simple ground
-    const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3ab33a });
+    // Invisible ground plane - only used for raycast detection, not rendered
+    // Actual terrain is made of grass/dirt/stone blocks like Minecraft!
+    const groundGeo = new THREE.PlaneGeometry(1000, 1000);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3ab33a, visible: false });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.position.y = 0; // Keep at y=0 for raycast reference
+    ground.visible = false; // Hidden - we use actual blocks now!
     scene.add(ground);
 
     // Track all blocks so we can break them!
     const blocks = [];
     const blockColors = [0xff00ff, 0x00ffff, 0xffff00, 0xff8800, 0x00ff00, 0xff0000, 0x0088ff];
+    
+    // ===== DIGGABLE GROUND SYSTEM (Minecraft-style!) =====
+    // Ground is made of actual blocks: grass on top, dirt below, then stone
+    const groundBlocks = [];
+    const dugOutPositions = new Set(); // Track positions that have been mined (don't regenerate)
+    const GROUND_BLOCK_SIZE = 4;
+    const GROUND_DEPTH = 4; // How many layers deep (grass, dirt, dirt, stone)
+    
+    // Create a ground block (grass/dirt/stone)
+    function makeGroundBlock(x, y, z, type = 'grass') {
+      const geo = new THREE.BoxGeometry(GROUND_BLOCK_SIZE, GROUND_BLOCK_SIZE, GROUND_BLOCK_SIZE);
+      
+      // Minecraft-style colors
+      let color;
+      if (type === 'grass') {
+        color = 0x3ab33a; // Green grass top
+      } else if (type === 'dirt') {
+        color = 0x8B4513; // Brown dirt
+      } else {
+        color = 0x808080; // Gray stone
+      }
+      
+      const mat = new THREE.MeshStandardMaterial({ color });
+      const block = new THREE.Mesh(geo, mat);
+      block.position.set(x, y, z);
+      block.castShadow = true;
+      block.receiveShadow = true;
+      block.userData.type = type;
+      block.userData.isGroundBlock = true;
+      scene.add(block);
+      groundBlocks.push(block);
+      return block;
+    }
+    
+    // Generate ground blocks around a position (Minecraft-style terrain!)
+    // Creates blocks on-demand for infinite world feel
+    function ensureGroundBlocksNear(x, z) {
+      const gridX = Math.round(x / GROUND_BLOCK_SIZE) * GROUND_BLOCK_SIZE;
+      const gridZ = Math.round(z / GROUND_BLOCK_SIZE) * GROUND_BLOCK_SIZE;
+      
+      // Generate blocks at this position and neighbors
+      const positions = [
+        [gridX, gridZ],
+        [gridX + GROUND_BLOCK_SIZE, gridZ],
+        [gridX - GROUND_BLOCK_SIZE, gridZ],
+        [gridX, gridZ + GROUND_BLOCK_SIZE],
+        [gridX, gridZ - GROUND_BLOCK_SIZE],
+        [gridX + GROUND_BLOCK_SIZE, gridZ + GROUND_BLOCK_SIZE],
+        [gridX - GROUND_BLOCK_SIZE, gridZ + GROUND_BLOCK_SIZE],
+        [gridX + GROUND_BLOCK_SIZE, gridZ - GROUND_BLOCK_SIZE],
+        [gridX - GROUND_BLOCK_SIZE, gridZ - GROUND_BLOCK_SIZE],
+      ];
+      
+      for (const [px, pz] of positions) {
+        for (let dy = 0; dy < GROUND_DEPTH; dy++) {
+          // Blocks at y=2 (grass), y=-2 (dirt), y=-6 (dirt), y=-10 (stone)
+          // Block at y=2 has top at y=4, matching player eye height of 5 when standing
+          const blockY = 2 - (dy * GROUND_BLOCK_SIZE);
+          
+          // Check if block already exists at this position
+          let exists = false;
+          for (const gb of groundBlocks) {
+            if (Math.abs(gb.position.x - px) < 1 && 
+                Math.abs(gb.position.y - blockY) < 1 && 
+                Math.abs(gb.position.z - pz) < 1) {
+              exists = true;
+              break;
+            }
+          }
+          
+          if (!exists) {
+            // Check if this position was dug out by player (don't regenerate)
+            const posKey = `${px},${blockY},${pz}`;
+            if (dugOutPositions.has(posKey)) {
+              continue; // Player mined this block, don't regenerate
+            }
+            
+            // Grass on top, then dirt, then stone deeper down
+            let type;
+            if (dy === 0) {
+              type = 'grass';
+            } else if (dy < 3) {
+              type = 'dirt';
+            } else {
+              type = 'stone';
+            }
+            makeGroundBlock(px, blockY, pz, type);
+          }
+        }
+      }
+    }
+    // ===== END DIGGABLE GROUND =====
 
     // Some colorful building blocks (easy to copy-paste more!)
-    function makeBlock(x, z, color = 0xff0000) {
+    // Now supports Y position for vertical stacking!
+    // Default y=6 puts block center there (bottom at y=4 = top of grass blocks)
+    function makeBlock(x, z, color = 0xff0000, y = 6) {
       const geo = new THREE.BoxGeometry(4, 4, 4);
       const mat = new THREE.MeshStandardMaterial({ color });
       const block = new THREE.Mesh(geo, mat);
-      block.position.set(x, 2, z);
+      block.position.set(x, y, z);
       block.castShadow = true;
       block.receiveShadow = true;
       scene.add(block);
@@ -1207,6 +1376,26 @@
     makeCave(55, -55, Math.PI * 0.8);   // Right side, facing left-ish
     makeCave(0, -75, 0);                // Far back, facing player
 
+    // ===== PRE-GENERATE MINECRAFT-STYLE GROUND =====
+    // Generate grass/dirt/stone blocks around spawn area so player has terrain to stand on!
+    // This creates a visible floor instead of the old invisible green plane
+    const SPAWN_RADIUS = 10; // Generate in a grid around spawn
+    for (let gx = -SPAWN_RADIUS; gx <= SPAWN_RADIUS; gx++) {
+      for (let gz = -SPAWN_RADIUS; gz <= SPAWN_RADIUS; gz++) {
+        ensureGroundBlocksNear(gx * GROUND_BLOCK_SIZE, gz * GROUND_BLOCK_SIZE);
+      }
+    }
+    // Also generate at player's exact spawn position (0, 10) to be safe
+    ensureGroundBlocksNear(0, 10);
+    ensureGroundBlocksNear(0, 8);
+    ensureGroundBlocksNear(0, 12);
+    console.log(`Generated ${groundBlocks.length} ground blocks for spawn area`);
+    // Debug: Log first few block positions
+    if (groundBlocks.length > 0) {
+      console.log('Sample block positions:', groundBlocks.slice(0, 3).map(b => `(${b.position.x}, ${b.position.y}, ${b.position.z})`));
+    }
+    // ===== END PRE-GENERATE =====
+
     // ===== END PHASE 2 =====
 
     // ===== PHASE 3: WATER =====
@@ -1426,7 +1615,8 @@
     scene.add(moonMesh);
 
     // Player stuff
-    camera.position.set(0, 5, 10);
+    // Grass blocks at y=2 have top at y=4, player eyes are 4 units above feet, so spawn at y=8
+    camera.position.set(0, 8, 10);
     const velocity = new THREE.Vector3();
     const direction = new THREE.Vector3();
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = true;
@@ -1480,6 +1670,57 @@
     camera.add(gun);
     scene.add(camera); // Need to add camera to scene for gun to render
 
+    // ===== SWING ANIMATION SYSTEM =====
+    // Minecraft-style "hack" animation for mining and attacking
+    const swingAnimation = {
+      active: false,
+      progress: 0,
+      duration: 0.25, // seconds for full swing
+      baseRotationX: 0,
+      baseRotationZ: 0,
+      basePositionY: -0.25,
+    };
+
+    function playSwingAnimation() {
+      if (swingAnimation.active) return; // Don't interrupt ongoing swing
+      swingAnimation.active = true;
+      swingAnimation.progress = 0;
+    }
+
+    function updateSwingAnimation(delta) {
+      if (!swingAnimation.active) return;
+
+      swingAnimation.progress += delta / swingAnimation.duration;
+      
+      if (swingAnimation.progress >= 1) {
+        // Animation complete - reset to default
+        swingAnimation.active = false;
+        swingAnimation.progress = 0;
+        gun.rotation.x = swingAnimation.baseRotationX;
+        gun.rotation.z = swingAnimation.baseRotationZ;
+        gun.position.y = swingAnimation.basePositionY;
+        return;
+      }
+
+      // Swing curve: down fast (0-0.4), up slow (0.4-1.0)
+      const p = swingAnimation.progress;
+      let swingAmount;
+      
+      if (p < 0.4) {
+        // Swing down - fast, dramatic
+        swingAmount = Math.sin((p / 0.4) * Math.PI * 0.5);
+      } else {
+        // Swing back up - slower
+        swingAmount = Math.cos(((p - 0.4) / 0.6) * Math.PI * 0.5);
+      }
+
+      // Apply swing rotation and position offset
+      gun.rotation.x = swingAnimation.baseRotationX - swingAmount * 0.8; // Rotate down
+      gun.rotation.z = swingAnimation.baseRotationZ + swingAmount * 0.3; // Slight twist
+      gun.position.y = swingAnimation.basePositionY - swingAmount * 0.1; // Move down slightly
+    }
+    // ===== END SWING ANIMATION =====
+
     // Score tracking
     let score = 0;
     const scoreDisplay = document.getElementById('score');
@@ -1506,6 +1747,10 @@
 
     // Shooting!
     const bullets = [];
+    const BULLET_MAX_BOUNCES = 3;
+    const BULLET_BOUNCE_ENERGY_LOSS = 0.7; // Keep 70% speed each bounce
+    const BULLET_MIN_SPEED = 5; // Remove bullet if slower than this
+
     function shoot() {
       soundSystem.shoot(); // Pew pew!
       
@@ -1517,6 +1762,8 @@
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
       bullet.velocity = dir.multiplyScalar(50);
+      bullet.bounceCount = 0; // Track bounces for ricochet physics
+      bullet.maxBounces = BULLET_MAX_BOUNCES;
       scene.add(bullet);
       bullets.push(bullet);
 
@@ -1549,6 +1796,7 @@
       leaves: { name: 'Leaves', color: '#228B22', icon: '🍃' },
       treasure: { name: 'Treasure', color: '#ffd700', icon: '💎' },
       dirt: { name: 'Dirt', color: '#8B5A2B', icon: '🟫' },
+      grass: { name: 'Grass Block', color: '#3ab33a', icon: '🌱' },
       // Animal drops
       // Raw meat - edible but restores less hunger than cooked
       raw_porkchop: { name: 'Raw Porkchop', color: '#FFA0A0', icon: '🥩', isEdible: true, hungerValue: 3 },
@@ -1775,7 +2023,7 @@
       
       const droppedItem = new THREE.Mesh(geometry, material);
       droppedItem.position.copy(position);
-      droppedItem.position.y = 1.5; // Float above ground
+      droppedItem.position.y = 5; // Float above grass (grass top at y=4)
       
       // Store item data
       droppedItem.userData = {
@@ -2128,7 +2376,8 @@
       
       const def = mobTypes[type];
       const model = createMobModel(type);
-      model.position.set(x, 0, z);
+      // Spawn on top of grass blocks (grass at y=2, top at y=4, mob feet at y=4)
+      model.position.set(x, 4, z);
       scene.add(model);
       
       const mob = {
@@ -2210,8 +2459,8 @@
           // Move mob
           mob.model.position.add(moveDir);
           
-          // Keep on ground
-          mob.model.position.y = 0;
+          // Keep on ground (grass blocks at y=2 have top at y=4)
+          mob.model.position.y = 4;
           
           // Face direction of movement
           if (moveDir.length() > 0.001) {
@@ -2239,7 +2488,7 @@
         
         // Simple leg animation (bob up/down slightly when moving)
         if (mob.state === 'wander' || mob.state === 'panic') {
-          mob.model.position.y = Math.abs(Math.sin(Date.now() * 0.01)) * 0.1;
+          mob.model.position.y = 4 + Math.abs(Math.sin(Date.now() * 0.01)) * 0.1;
         }
       }
     }
@@ -2350,7 +2599,8 @@
       const type = types[Math.floor(Math.random() * types.length)];
       
       const model = createMobModel(type);
-      model.position.set(x, 0, z);
+      // Spawn on top of grass blocks (grass at y=2, top at y=4)
+      model.position.set(x, 4, z);
       scene.add(model);
       
       mobs.push({
@@ -2632,7 +2882,8 @@
       
       const def = hostileMobTypes[type];
       const model = createHostileMobModel(type);
-      model.position.set(x, 0, z);
+      // Spawn on top of grass blocks (grass at y=2, top at y=4)
+      model.position.set(x, 4, z);
       scene.add(model);
       
       const mob = {
@@ -2860,7 +3111,7 @@
         const speed = mob.state === 'chase' ? mob.speed : mob.speed * 0.5;
         const moveDir = mob.targetDirection.clone().multiplyScalar(speed * delta);
         mob.model.position.add(moveDir);
-        mob.model.position.y = 0;
+        mob.model.position.y = 4; // Keep on ground (grass blocks at y=2 have top at y=4)
         
         // Face direction
         if (moveDir.length() > 0.001) {
@@ -2869,7 +3120,7 @@
         
         // Walking animation
         if (mob.state === 'chase') {
-          mob.model.position.y = Math.abs(Math.sin(Date.now() * 0.015)) * 0.15;
+          mob.model.position.y = 4 + Math.abs(Math.sin(Date.now() * 0.015)) * 0.15;
         }
       }
     }
@@ -3017,7 +3268,8 @@
     // ===== BLOCK PLACING (X key) =====
     
     /**
-     * Place a block from inventory
+     * Place a block from inventory - Minecraft-style vertical stacking!
+     * Blocks are placed on the face you're looking at (top, side, etc.)
      */
     function placeBlock() {
       const selectedItem = inventory.slots[inventory.selectedSlot];
@@ -3029,25 +3281,80 @@
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       
-      // Check intersection with ground and existing blocks
-      const intersects = raycaster.intersectObjects([ground, ...blocks]);
+      // Check intersection with ground and existing blocks (including ground blocks!)
+      const intersects = raycaster.intersectObjects([ground, ...blocks, ...groundBlocks]);
       
       if (intersects.length > 0) {
         const hit = intersects[0];
         const point = hit.point;
+        const normal = hit.face.normal.clone();
         
-        // Snap to grid (4 unit blocks)
+        // Check if we hit a ground block (grass, dirt, stone)
+        const hitGroundBlock = groundBlocks.includes(hit.object);
+        
+        // Transform normal to world space if hitting a block
+        if (hit.object !== ground) {
+          normal.transformDirection(hit.object.matrixWorld);
+        }
+        
+        // Grid size (block size)
         const gridSize = 4;
-        const snapX = Math.round(point.x / gridSize) * gridSize;
-        const snapZ = Math.round(point.z / gridSize) * gridSize;
         
-        // Don't place too close to player
+        // Calculate placement position based on hit normal (Minecraft-style!)
+        let snapX, snapY, snapZ;
+        
+        if (hit.object === ground) {
+          // Hit invisible ground plane - place block on top of where grass would be
+          snapX = Math.round(point.x / gridSize) * gridSize;
+          snapY = 6; // ON TOP of grass level (grass top at y=4, new block center at y=6)
+          snapZ = Math.round(point.z / gridSize) * gridSize;
+        } else if (hitGroundBlock) {
+          // Hit a ground block (grass/dirt/stone) - place block adjacent to face
+          const hitBlockPos = hit.object.position;
+          
+          // Round the normal to get axis-aligned direction
+          const nx = Math.round(normal.x);
+          const ny = Math.round(normal.y);
+          const nz = Math.round(normal.z);
+          
+          // New block position is adjacent to hit block in the normal direction
+          snapX = hitBlockPos.x + nx * gridSize;
+          snapY = hitBlockPos.y + ny * gridSize;
+          snapZ = hitBlockPos.z + nz * gridSize;
+        } else {
+          // Hit a placed block - place block adjacent to the face we hit
+          const hitBlockPos = hit.object.position;
+          
+          // Round the normal to get axis-aligned direction
+          const nx = Math.round(normal.x);
+          const ny = Math.round(normal.y);
+          const nz = Math.round(normal.z);
+          
+          // New block position is adjacent to hit block in the normal direction
+          snapX = hitBlockPos.x + nx * gridSize;
+          snapY = hitBlockPos.y + ny * gridSize;
+          snapZ = hitBlockPos.z + nz * gridSize;
+        }
+        
+        // Don't place too close to player (would get stuck!)
         const dx = snapX - camera.position.x;
+        const dy = snapY - camera.position.y;
         const dz = snapZ - camera.position.z;
-        if (Math.sqrt(dx * dx + dz * dz) < 3) return;
+        const distToPlayer = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distToPlayer < 3) return;
         
         // Don't place too far
         if (hit.distance > 20) return;
+        
+        // Check if a block already exists at this position
+        for (const block of blocks) {
+          const bx = block.position.x;
+          const by = block.position.y;
+          const bz = block.position.z;
+          if (Math.abs(bx - snapX) < 1 && Math.abs(by - snapY) < 1 && Math.abs(bz - snapZ) < 1) {
+            return; // Block already here!
+          }
+        }
         
         // Get color for placed block
         const itemDef = itemTypes[selectedItem.type];
@@ -3056,8 +3363,8 @@
           blockColor = parseInt(itemDef.color.replace('#', '0x'));
         }
         
-        // Create the placed block
-        const placedBlock = makeBlock(snapX, snapZ, blockColor);
+        // Create the placed block with Y position!
+        const placedBlock = makeBlock(snapX, snapZ, blockColor, snapY);
         placedBlock.userData.placedBy = 'player';
         placedBlock.userData.itemType = selectedItem.type;
         soundSystem.placeBlock(); // Thunk!
@@ -3099,8 +3406,11 @@
       maxHealth: 10, // 10 hearts (each heart = 2 HP)
       hunger: 20,
       maxHunger: 10, // 10 drumsticks (each = 2)
-      lastY: 5, // For fall damage calculation
+      lastY: 8, // For fall damage calculation
       fallDistance: 0,
+      // Minecraft-style fall damage: track the GROUND HEIGHT you last stood on
+      lastGroundY: 8, // The Y position of the last ground player stood on (standing on grass at y=4)
+      isFalling: false,
     };
 
     // Initialize health & hunger bar UI
@@ -3142,6 +3452,7 @@
       creeper: 'Jax was blown up by Creeper',
       drowning: 'Jax drowned',
       void: 'Jax fell out of the world',
+      ricochet: 'Jax was hit by own ricochet! 🎱',
       generic: 'Jax died',
     };
     
@@ -3193,7 +3504,7 @@
       deathMessage.textContent = deathMessages[cause] || deathMessages.generic;
       deathScoreEl.textContent = score;
       deathScreen.classList.add('active');
-      controls.unlock();
+      if (!TEST_MODE) controls.unlock();
     }
     
     function respawn() {
@@ -3201,9 +3512,11 @@
       player.health = 20;
       player.hunger = 20;
       player.fallDistance = 0;
+      player.lastGroundY = 8; // Reset fall tracking (standing on grass at y=4)
+      player.isFalling = false;
       
-      // Teleport to spawn point
-      camera.position.set(0, 5, 10);
+      // Teleport to spawn point (standing on grass blocks at y=4, eyes at y=8)
+      camera.position.set(0, 8, 10);
       velocity.x = 0;
       velocity.y = 0;
       velocity.z = 0;
@@ -3218,7 +3531,9 @@
       
       // Hide death screen
       deathScreen.classList.remove('active');
-      controls.lock();
+      if (!TEST_MODE) {
+        controls.lock();
+      }
       
       soundSystem.levelUp(); // Respawn jingle!
     }
@@ -3249,7 +3564,8 @@
 
     // Hunger decreases over time
     setInterval(() => {
-      if (!isPaused && controls.isLocked) {
+      const gameplayActive = TEST_MODE || controls.isLocked;
+      if (!isPaused && gameplayActive) {
         player.hunger = Math.max(0, player.hunger - 1);
         updateHungerBar();
         
@@ -3267,6 +3583,7 @@
     // ===== BLOCK HARDNESS SYSTEM =====
     // Different blocks take different amounts of hits to break
     const blockHardness = {
+      grass: 2,  // Grass breaks like dirt
       dirt: 2,
       wood: 4,
       stone: 6,
@@ -3317,8 +3634,9 @@
       // Sun angle: 0 at midnight (below), 0.5 at noon (above)
       // timeOfDay 0.25 = sunrise (east), 0.5 = noon (top), 0.75 = sunset (west)
       const sunAngle = (timeOfDay - 0.25) * Math.PI * 2; // Full rotation
-      const sunX = Math.sin(sunAngle) * SKY_RADIUS;
-      const sunY = Math.cos(sunAngle) * SKY_RADIUS;
+      // Fixed: sin for Y (height), cos for X (horizontal position)
+      const sunX = Math.cos(sunAngle) * SKY_RADIUS;
+      const sunY = Math.sin(sunAngle) * SKY_RADIUS;
       
       // Position sun relative to camera (follows player)
       sunMesh.position.set(
@@ -3519,12 +3837,12 @@
       isCrafting = !isCrafting;
       if (isCrafting) {
         craftingMenu.classList.add('active');
-        controls.unlock();
+        if (!TEST_MODE) controls.unlock();
         updateRecipeList();
         soundSystem.menuOpen();
       } else {
         craftingMenu.classList.remove('active');
-        if (!isPaused) controls.lock();
+        if (!isPaused && !TEST_MODE) controls.lock();
         soundSystem.menuClose();
       }
     }
@@ -3577,12 +3895,12 @@
       isFurnaceOpen = !isFurnaceOpen;
       if (isFurnaceOpen) {
         furnaceMenu.classList.add('active');
-        controls.unlock();
+        if (!TEST_MODE) controls.unlock();
         updateFurnaceUI();
         soundSystem.menuOpen();
       } else {
         furnaceMenu.classList.remove('active');
-        if (!isPaused && !isCrafting) controls.lock();
+        if (!isPaused && !isCrafting && !TEST_MODE) controls.lock();
         soundSystem.menuClose();
       }
     }
@@ -3874,6 +4192,31 @@
         return { type: 'block', object: blockHits[0].object, hardness: blockHardness.default };
       }
       
+      // Check ground blocks (grass/dirt/stone)
+      const groundHits = raycaster.intersectObjects(groundBlocks);
+      if (groundHits.length > 0 && groundHits[0].distance < 8) {
+        const gb = groundHits[0].object;
+        const gbType = gb.userData.type || 'dirt';
+        const hardness = blockHardness[gbType] || blockHardness.dirt;
+        return { type: 'ground', object: gb, hardness: hardness };
+      }
+      
+      // Check if aiming at invisible ground plane (generates blocks when digging)
+      const groundPlaneHits = raycaster.intersectObject(ground);
+      if (groundPlaneHits.length > 0 && groundPlaneHits[0].distance < 8) {
+        const hitPoint = groundPlaneHits[0].point;
+        // Generate ground blocks at this location
+        ensureGroundBlocksNear(hitPoint.x, hitPoint.z);
+        // Now try to get the generated block
+        const newGroundHits = raycaster.intersectObjects(groundBlocks);
+        if (newGroundHits.length > 0 && newGroundHits[0].distance < 8) {
+          const gb = newGroundHits[0].object;
+          const gbType = gb.userData.type || 'dirt';
+          const hardness = blockHardness[gbType] || blockHardness.dirt;
+          return { type: 'ground', object: gb, hardness: hardness };
+        }
+      }
+      
       // Check tree parts
       const treeHits = raycaster.intersectObjects(treeParts.filter(p => p.parent));
       if (treeHits.length > 0 && treeHits[0].distance < 8) {
@@ -3921,6 +4264,7 @@
         mineAccumulator += delta;
         if (mineAccumulator >= 0.5) {
           mineAccumulator = 0;
+          playSwingAnimation(); // Swing when attacking!
           const damage = getAttackDamage();
           useToolDurability(); // Attacking also uses durability
           if (target.isHostile) {
@@ -3952,6 +4296,7 @@
       // Play mining hit sound every 0.3 seconds of mining
       if (Math.floor(mineAccumulator / 0.3) > Math.floor(prevAccumulator / 0.3)) {
         soundSystem.mineHit();
+        playSwingAnimation(); // Swing the pickaxe!
       }
       
       // Get or create damage data
@@ -4030,6 +4375,35 @@
         if (parent) parent.remove(obj);
         const idx = treeParts.indexOf(obj);
         if (idx > -1) treeParts.splice(idx, 1);
+      } else if (target.type === 'ground') {
+        // Ground blocks drop their type (grass drops grass, dirt drops dirt, stone drops cobblestone)
+        const groundType = obj.userData.type || 'dirt';
+        if (groundType === 'grass') {
+          dropType = 'dirt'; // Grass drops dirt (like Minecraft)
+        } else if (groundType === 'dirt') {
+          dropType = 'dirt';
+        } else {
+          dropType = 'cobblestone'; // Stone drops cobblestone
+        }
+        spawnDroppedItem(dropType, worldPos);
+        
+        // Track this position as "dug out" so it doesn't regenerate
+        const gridX = Math.round(worldPos.x / GROUND_BLOCK_SIZE) * GROUND_BLOCK_SIZE;
+        const gridY = Math.round(worldPos.y / GROUND_BLOCK_SIZE) * GROUND_BLOCK_SIZE;
+        const gridZ = Math.round(worldPos.z / GROUND_BLOCK_SIZE) * GROUND_BLOCK_SIZE;
+        const posKey = `${gridX},${gridY},${gridZ}`;
+        dugOutPositions.add(posKey);
+        
+        scene.remove(obj);
+        const idx = groundBlocks.indexOf(obj);
+        if (idx > -1) groundBlocks.splice(idx, 1);
+        
+        // Generate blocks in adjacent columns (not at this position - it's dug out!)
+        // This ensures there's terrain to dig into nearby
+        ensureGroundBlocksNear(worldPos.x + GROUND_BLOCK_SIZE, worldPos.z);
+        ensureGroundBlocksNear(worldPos.x - GROUND_BLOCK_SIZE, worldPos.z);
+        ensureGroundBlocksNear(worldPos.x, worldPos.z + GROUND_BLOCK_SIZE);
+        ensureGroundBlocksNear(worldPos.x, worldPos.z - GROUND_BLOCK_SIZE);
       } else if (target.type === 'cave') {
         // Check if it's an ore block
         const oreType = obj.userData.oreType;
@@ -4100,11 +4474,11 @@
       isPaused = !isPaused;
       if (isPaused) {
         pauseMenu.classList.add('active');
-        controls.unlock();
+        if (!TEST_MODE) controls.unlock();
         soundSystem.menuOpen();
       } else {
         pauseMenu.classList.remove('active');
-        controls.lock();
+        if (!TEST_MODE) controls.lock();
         soundSystem.menuClose();
       }
     }
@@ -4245,6 +4619,9 @@
       // Don't process game controls if paused or crafting or furnace
       if (isPaused || isCrafting || isFurnaceOpen) return;
 
+      // Check if gameplay is active (either pointer locked or in test mode)
+      const gameplayActive = TEST_MODE || controls.isLocked;
+      
       switch (e.code) {
         // Arrow keys = MOVE
         case 'ArrowUp': moveForward = true; break;
@@ -4256,12 +4633,17 @@
         case 'KeyS': aimDown = true; break;
         case 'KeyA': aimLeft = true; break;
         case 'KeyD': aimRight = true; break;
+        // TEST MODE: Q/E for camera yaw rotation, T/G for pitch
+        case 'KeyQ': if (TEST_MODE) testModeCamera.rotateLeft = true; break;
+        case 'KeyE': if (TEST_MODE) testModeCamera.rotateRight = true; break;
+        case 'KeyT': if (TEST_MODE) testModeCamera.rotateUp = true; break;
+        case 'KeyG': if (TEST_MODE) testModeCamera.rotateDown = true; break;
         // Jump
         case 'Space': if (canJump) { velocity.y += 18; soundSystem.jump(); } canJump = false; break;
-        // Mine with Z key (hold)
-        case 'KeyZ': if (controls.isLocked) isMining = true; break;
-        // Place block (X key)
-        case 'KeyX': if (controls.isLocked) placeBlock(); break;
+        // Mine with Z key (hold) - works in test mode too
+        case 'KeyZ': if (gameplayActive) isMining = true; break;
+        // Place block (X key) - works in test mode too
+        case 'KeyX': if (gameplayActive) placeBlock(); break;
         // Eat food (F key)
         case 'KeyF': eatFood(); break;
         // Hotbar selection (1-9)
@@ -4288,6 +4670,11 @@
         case 'KeyS': aimDown = false; break;
         case 'KeyA': aimLeft = false; break;
         case 'KeyD': aimRight = false; break;
+        // TEST MODE: Q/E for camera yaw rotation, T/G for pitch
+        case 'KeyQ': if (TEST_MODE) testModeCamera.rotateLeft = false; break;
+        case 'KeyE': if (TEST_MODE) testModeCamera.rotateRight = false; break;
+        case 'KeyT': if (TEST_MODE) testModeCamera.rotateUp = false; break;
+        case 'KeyG': if (TEST_MODE) testModeCamera.rotateDown = false; break;
         // Stop mining
         case 'KeyZ': isMining = false; break;
       }
@@ -4296,7 +4683,8 @@
     // Mouse down = start mining (left-click) or shoot (right-click)
     document.addEventListener('mousedown', (e) => {
       if (isPaused || isCrafting || e.target.closest('#pauseMenu') || e.target.closest('#craftingMenu')) return;
-      if (controls.isLocked) {
+      const gameplayActive = TEST_MODE || controls.isLocked;
+      if (gameplayActive) {
         if (e.button === 0) {
           isMining = true; // Left-click = mine
         } else if (e.button === 2) {
@@ -4307,7 +4695,8 @@
     
     // Prevent context menu on right-click (so we can shoot!)
     document.addEventListener('contextmenu', (e) => {
-      if (controls.isLocked) {
+      const gameplayActive = TEST_MODE || controls.isLocked;
+      if (gameplayActive) {
         e.preventDefault();
       }
     });
@@ -4366,7 +4755,9 @@
       localStorage.setItem(TUTORIAL_KEY, 'true');
       soundSystem.init();
       soundSystem.craftSuccess(); // Happy sound!
-      controls.lock();
+      if (!TEST_MODE) {
+        controls.lock();
+      }
     }
     
     function hasPlayedBefore() {
@@ -4375,8 +4766,12 @@
     
     startGameBtn.addEventListener('click', hideTutorial);
     
-    // Show tutorial on first visit
-    if (!hasPlayedBefore()) {
+    // Show tutorial on first visit (skip in test mode)
+    if (TEST_MODE) {
+      // Test mode: auto-start the game
+      hideTutorial();
+      console.log('🧪 Test mode: Tutorial skipped, game started');
+    } else if (!hasPlayedBefore()) {
       showTutorial();
     }
     // ===== END TUTORIAL =====
@@ -4610,6 +5005,9 @@
       // Mining system
       updateMining(delta);
       
+      // Swing animation (mining/attack "hack" motion)
+      updateSwingAnimation(delta);
+      
       // Furnace smelting (runs even when not looking at it)
       updateFurnace(delta);
       
@@ -4619,12 +5017,42 @@
         return;
       }
 
-      if (controls.isLocked && !isPaused && !isCrafting) {
+      // Check if we should process gameplay (either pointer locked or in test mode)
+      const gameplayActive = TEST_MODE || controls.isLocked;
+      
+      if (gameplayActive && !isPaused && !isCrafting) {
+        // ===== TEST MODE CAMERA ROTATION =====
+        // In test mode, use keyboard for camera rotation (Q/E for yaw, T/G for pitch)
+        if (TEST_MODE) {
+          const rotSpeed = testModeCamera.sensitivity * 2;
+          
+          if (testModeCamera.rotateLeft) {
+            testModeCamera.yaw += rotSpeed;
+          }
+          if (testModeCamera.rotateRight) {
+            testModeCamera.yaw -= rotSpeed;
+          }
+          if (testModeCamera.rotateUp) {
+            testModeCamera.pitch += rotSpeed * 0.5;
+            testModeCamera.pitch = Math.min(testModeCamera.pitch, Math.PI / 2 - 0.1);
+          }
+          if (testModeCamera.rotateDown) {
+            testModeCamera.pitch -= rotSpeed * 0.5;
+            testModeCamera.pitch = Math.max(testModeCamera.pitch, -Math.PI / 2 + 0.1);
+          }
+          
+          // Apply rotation to camera
+          camera.rotation.order = 'YXZ';
+          camera.rotation.y = testModeCamera.yaw;
+          camera.rotation.x = testModeCamera.pitch;
+        }
+        // ===== END TEST MODE CAMERA ROTATION =====
+        
         // WASD aiming - simulate mouse movement for PointerLockControls
         // This works properly with the controls instead of conflicting
         const aimSpeed = settings.aimSensitivity * 50; // Scale for smooth movement
         
-        if (aimLeft || aimRight || aimUp || aimDown) {
+        if (!TEST_MODE && (aimLeft || aimRight || aimUp || aimDown)) {
           // Create synthetic mouse movement
           const movementX = (Number(aimRight) - Number(aimLeft)) * aimSpeed * delta;
           const movementY = (Number(aimDown) - Number(aimUp)) * aimSpeed * delta;
@@ -4650,9 +5078,24 @@
           // Save current position
           const oldPos = camera.position.clone();
           
-          // Try to move
+          if (TEST_MODE) {
+            // Test mode: implement movement manually based on camera rotation
+            const moveSpeed = 20 * delta;
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            
+            const right = new THREE.Vector3();
+            right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+            
+            camera.position.addScaledVector(forward, direction.z * moveSpeed);
+            camera.position.addScaledVector(right, direction.x * moveSpeed);
+          } else {
+            // Normal mode: use PointerLockControls
           controls.moveRight(direction.x * 20 * delta);
           controls.moveForward(direction.z * 20 * delta);
+          }
           
           // Check for collision and resolve
           const newPos = camera.position.clone();
@@ -4665,33 +5108,58 @@
 
         camera.position.y += velocity.y * delta;
         
-        // Check for ground (including placed blocks!)
-        let groundHeight = 5; // Default ground level (player eye height)
+        // ===== GROUND DETECTION (Minecraft-style block snapping!) =====
         const playerX = camera.position.x;
         const playerZ = camera.position.z;
+        const playerFeet = camera.position.y - 4; // Player feet position (4 units below eyes)
         
-        // Check if standing on any block
-        for (const block of blocks) {
-          const dx = playerX - block.position.x;
-          const dz = playerZ - block.position.z;
-          const dist = Math.sqrt(dx * dx + dz * dz);
-          
-          // If player is on top of block (within horizontal bounds)
-          if (dist < 2.5) {
-            const blockTop = block.position.y + 2; // Block is 4 units tall, center at block.position.y
-            const playerFeet = camera.position.y - 4; // Player feet (eye height is 5, so feet are at y=1 normally)
+        // Always generate ground blocks near player (ensures terrain exists under them)
+        ensureGroundBlocksNear(playerX, playerZ);
+        
+        // Start with a low fallback (void level) - will find actual blocks
+        let groundHeight = -100;
+        let foundBlock = false;
+        
+        // Helper function to check all block types for ground
+        // Minecraft-style: land on block if within horizontal bounds and player above block
+        function checkBlocksForGround(blockArray) {
+          for (const block of blockArray) {
+            const dx = playerX - block.position.x;
+            const dz = playerZ - block.position.z;
+            const horizDist = Math.sqrt(dx * dx + dz * dz);
             
-            // If player is falling onto block
-            if (playerFeet <= blockTop + 0.5 && playerFeet >= blockTop - 1 && velocity.y <= 0) {
-              groundHeight = blockTop + 4; // Set ground to block top + eye height
+            // If player is within horizontal bounds of block (block is 4 units wide, use 2.8 for margin)
+            if (horizDist < 2.8) {
+              const blockTop = block.position.y + 2; // Top of block (center + half height)
+              const newGroundHeight = blockTop + 4; // Eye height when standing on this block
+              
+              // Land on this block if:
+              // 1. Player feet are at or above block top (can land when falling onto it)
+              //    Allow margin for stepping up small heights (like Minecraft auto-step)
+              // 2. This would be higher ground than current (find highest valid block)
+              // Key: Only land on blocks where feet are AT or ABOVE the top
+              const canLandOn = playerFeet >= blockTop - 1.0; // 1 unit margin for step-up
+              const isHigherGround = newGroundHeight > groundHeight;
+              
+              if (canLandOn && isHigherGround) {
+                groundHeight = newGroundHeight;
+                foundBlock = true;
+              }
             }
           }
         }
         
-        // Fall damage calculation
-        if (velocity.y < 0) {
-          // Track falling
-          player.fallDistance += Math.abs(velocity.y * delta);
+        // Check placed blocks first (they take priority), then ground blocks
+        checkBlocksForGround(blocks);
+        checkBlocksForGround(groundBlocks);
+        
+        // Safety: if no block found, use grass level fallback only if player is above void
+        if (!foundBlock) {
+          if (playerFeet > -10) {
+            groundHeight = 8; // Fallback to grass level
+          } else {
+            groundHeight = -100; // Void - will trigger death
+          }
         }
         
         // Check if player is in water (negates fall damage)
@@ -4700,14 +5168,25 @@
           camera.position.z > lake.position.z - 12.5 && camera.position.z < lake.position.z + 12.5 &&
           camera.position.y < 5;
         
-        if (camera.position.y < groundHeight) {
-          // Landed!
-          // Calculate fall damage (like Minecraft: damage = fallDistance - 3, max 20)
-          const SAFE_FALL_DISTANCE = 3;
+        // ===== MINECRAFT-STYLE FALL DAMAGE =====
+        // Track when player starts falling
+        if (velocity.y < 0 && !player.isFalling) {
+          player.isFalling = true;
+        }
+        
+        if (camera.position.y <= groundHeight) {
+          // Landed on ground!
+          // Calculate fall damage: how far did we fall from our LAST STANDING POSITION?
+          // This is the key: we compare to lastGroundY, not the apex of the jump!
+          const SAFE_FALL_DISTANCE = 3; // No damage for falls <= 3 blocks
           const MAX_FALL_DAMAGE = 20;
           
-          if (!inWater && player.fallDistance > SAFE_FALL_DISTANCE) {
-            const damage = Math.min(Math.floor(player.fallDistance - SAFE_FALL_DISTANCE), MAX_FALL_DAMAGE);
+          // Fall distance is from last ground position to current ground position
+          // Only count if we actually FELL (lastGroundY > groundHeight)
+          const fallDistance = player.lastGroundY - groundHeight;
+          
+          if (!inWater && player.isFalling && fallDistance > SAFE_FALL_DISTANCE) {
+            const damage = Math.min(Math.floor(fallDistance - SAFE_FALL_DISTANCE), MAX_FALL_DAMAGE);
             takeDamage(damage, 'fall');
             soundSystem.landHard(); // Hard landing with damage
             
@@ -4724,7 +5203,6 @@
               );
               scene.add(dust);
               
-              // Animate dust outward and fade
               const dustVel = new THREE.Vector3(
                 (Math.random() - 0.5) * 3,
                 Math.random() * 2,
@@ -4733,7 +5211,7 @@
               let dustLife = 0;
               const dustTimer = setInterval(() => {
                 dust.position.add(dustVel.clone().multiplyScalar(0.05));
-                dustVel.y -= 0.1; // gravity
+                dustVel.y -= 0.1;
                 dust.material.opacity -= 0.05;
                 dustLife++;
                 if (dustLife > 15) {
@@ -4742,24 +5220,190 @@
                 }
               }, 50);
             }
-          } else if (player.fallDistance > 0.5 && !inWater) {
-            soundSystem.land(); // Normal landing
-          } else if (inWater && player.fallDistance > 3) {
-            // Splash sound for water landing (reuse land sound for now)
-            soundSystem.land();
+          } else if (player.isFalling && Math.abs(camera.position.y - groundHeight) > 0.5 && !inWater) {
+            soundSystem.land(); // Normal landing sound
+          } else if (inWater && fallDistance > 3) {
+            soundSystem.land(); // Splash sound
           }
           
-          player.fallDistance = 0;
+          // Update lastGroundY to current ground (for next fall calculation)
+          // Only update if we're on HIGHER ground (climbing up resets fall tracking)
+          if (groundHeight >= player.lastGroundY) {
+            player.lastGroundY = groundHeight;
+          } else if (player.isFalling) {
+            // Landed on lower ground - update for next fall
+            player.lastGroundY = groundHeight;
+          }
+          
+          // Reset fall tracking
+          player.isFalling = false;
           velocity.y = 0;
           camera.position.y = groundHeight;
           canJump = true;
         }
+        // ===== END FALL DAMAGE =====
       }
 
       // Update bullets and check for hits!
       for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i];
         bullet.position.addScaledVector(bullet.velocity, delta);
+        
+        // ===== BOUNCE PHYSICS =====
+        let bounced = false;
+        
+        // Check ground bounce (y < 0.5)
+        if (bullet.position.y < 0.5 && bullet.velocity.y < 0) {
+          bullet.position.y = 0.5;
+          bullet.velocity.y = -bullet.velocity.y; // Reflect Y
+          bullet.velocity.multiplyScalar(BULLET_BOUNCE_ENERGY_LOSS);
+          bullet.bounceCount++;
+          bounced = true;
+          // Distance-based ricochet sound (quieter when farther away!)
+          const distToPlayer = bullet.position.distanceTo(camera.position);
+          soundSystem.ricochet(distToPlayer);
+        }
+        
+        // Check block surface bounces using raycast
+        if (!bounced) {
+          const bulletRay = new THREE.Raycaster(
+            bullet.position.clone(),
+            bullet.velocity.clone().normalize(),
+            0, 1.5 // Check 1.5 units ahead
+          );
+          const blockHits = bulletRay.intersectObjects(blocks);
+          
+          if (blockHits.length > 0 && blockHits[0].distance < 1.5) {
+            const hit = blockHits[0];
+            const hitBlock = hit.object;
+            
+            // Track blocks this bullet has hit
+            if (!bullet.hitBlocks) bullet.hitBlocks = new Set();
+            
+            // Check if we've hit this block before - DESTROY IT!
+            if (bullet.hitBlocks.has(hitBlock)) {
+              // BOOM! Destroy block on second hit!
+              soundSystem.explosion();
+              const blockIdx = blocks.indexOf(hitBlock);
+              if (blockIdx > -1) {
+                const blockPos = hitBlock.position.clone();
+                const blockColor = hitBlock.material.color.getHex();
+                
+                // Sparkle explosion!
+                for (let s = 0; s < 8; s++) {
+                  const spark = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.3),
+                    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+                  );
+                  spark.position.copy(blockPos);
+                  scene.add(spark);
+                  const sparkVel = new THREE.Vector3(
+                    (Math.random() - 0.5) * 15,
+                    Math.random() * 10,
+                    (Math.random() - 0.5) * 15
+                  );
+                  spark.userData.vel = sparkVel;
+                  spark.userData.life = 0;
+                  const sparkTimer = setInterval(() => {
+                    spark.position.add(spark.userData.vel.clone().multiplyScalar(0.05));
+                    spark.userData.vel.y -= 0.5;
+                    spark.userData.life++;
+                    if (spark.userData.life > 20) {
+                      scene.remove(spark);
+                      clearInterval(sparkTimer);
+                    }
+                  }, 50);
+                }
+                
+                // Drop item and remove block
+                spawnDroppedItem('stone', blockPos, blockColor);
+                scene.remove(hitBlock);
+                blocks.splice(blockIdx, 1);
+                
+                // Score!
+                score++;
+                scoreDisplay.textContent = score;
+                showScorePopup(blockPos);
+                
+                // Spawn new block
+                setTimeout(spawnRandomBlock, 2000);
+              }
+              
+              scene.remove(bullet);
+          bullets.splice(i, 1);
+              continue;
+            }
+            
+            // First hit - bounce off!
+            bullet.hitBlocks.add(hitBlock);
+            
+            const normal = hit.face.normal.clone();
+            // Transform normal to world space
+            normal.transformDirection(hit.object.matrixWorld);
+            
+            // Reflect velocity: v' = v - 2(v·n)n
+            const dot = bullet.velocity.dot(normal);
+            bullet.velocity.sub(normal.multiplyScalar(2 * dot));
+            bullet.velocity.multiplyScalar(BULLET_BOUNCE_ENERGY_LOSS);
+            
+            // Move bullet slightly away from surface
+            bullet.position.add(hit.face.normal.clone().transformDirection(hit.object.matrixWorld).multiplyScalar(0.3));
+            
+            bullet.bounceCount++;
+            bounced = true;
+            // Distance-based ricochet sound
+            const bounceDistToPlayer = bullet.position.distanceTo(camera.position);
+            soundSystem.ricochet(bounceDistToPlayer);
+          }
+        }
+        
+        // Remove bullet if max bounces or too slow
+        const speed = bullet.velocity.length();
+        if (bullet.bounceCount >= bullet.maxBounces || speed < BULLET_MIN_SPEED) {
+          // Final hit - create small spark effect
+          const spark = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2),
+            new THREE.MeshBasicMaterial({ color: 0xff8800 })
+          );
+          spark.position.copy(bullet.position);
+          scene.add(spark);
+          setTimeout(() => scene.remove(spark), 100);
+          
+          scene.remove(bullet);
+          bullets.splice(i, 1);
+          continue;
+        }
+        
+        // Remove bullet if it goes too far (out of world)
+        if (bullet.position.length() > 500) {
+          scene.remove(bullet);
+          bullets.splice(i, 1);
+          continue;
+        }
+        // ===== END BOUNCE PHYSICS =====
+        
+        // ===== SELF-DAMAGE & FLYBY SOUNDS =====
+        // Only check after bullet has bounced at least once (so you don't shoot yourself)
+        if (bullet.bounceCount > 0) {
+          const distToPlayer = bullet.position.distanceTo(camera.position);
+          
+          // Check if bullet hit the player!
+          if (distToPlayer < 1.5) {
+            soundSystem.ricochetHit(); // Ouch sound!
+            takeDamage(3, 'ricochet'); // Ouch! Shot yourself!
+            scene.remove(bullet);
+            bullets.splice(i, 1);
+            continue;
+          }
+          
+          // Flyby sound when bullet passes close (within 3 units, but not too close)
+          if (distToPlayer < 3 && distToPlayer > 1.5 && !bullet.playedFlyby) {
+            bullet.playedFlyby = true;
+            // Play flyby "whoosh" sound
+            soundSystem.playFlyby();
+          }
+        }
+        // ===== END SELF-DAMAGE & FLYBY =====
         
         // Check if bullet hit any passive mob
         const hitMob = checkMobHit(bullet.position, 1.5);
@@ -4779,64 +5423,59 @@
           continue;
         }
 
-        // Check if bullet hit any block
-        for (let j = blocks.length - 1; j >= 0; j--) {
-          const block = blocks[j];
-          if (bullet.position.distanceTo(block.position) < 2.5) {
-            // BOOM! Make sparkles fly out like sprinkles!
-            soundSystem.explosion();
-            for (let s = 0; s < 8; s++) {
-              const spark = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3),
-                new THREE.MeshBasicMaterial({ color: 0xffff00 })
-              );
-              spark.position.copy(block.position);
-              scene.add(spark);
+        // Bullets now BOUNCE off blocks instead of destroying them!
+        // (Block destruction is handled by the bounce physics above - bullets ricochet)
+        // Use mining (Z key) to break blocks instead.
+
+        // ===== SHOOT-TO-PICKUP: Hit dropped items to collect them! =====
+        for (let d = droppedItems.length - 1; d >= 0; d--) {
+          const droppedItem = droppedItems[d];
+          if (bullet.position.distanceTo(droppedItem.position) < 2) {
+            // Pick up the item!
+            const itemType = droppedItem.userData.itemType;
+            const count = droppedItem.userData.count || 1;
+            
+            if (addToInventory(itemType, count)) {
+              // Success! Show pickup effect
+              soundSystem.itemPickup();
+              showItemPickupPopup(itemType, droppedItem.position);
               
-              // Each spark flies in random direction
-              const sparkVel = new THREE.Vector3(
-                (Math.random() - 0.5) * 15,
-                Math.random() * 10,
-                (Math.random() - 0.5) * 15
-              );
-              spark.userData.vel = sparkVel;
-              spark.userData.life = 0;
+              // Sparkle effect when shot
+              for (let s = 0; s < 5; s++) {
+                const spark = new THREE.Mesh(
+                  new THREE.SphereGeometry(0.15),
+                  new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+                );
+                spark.position.copy(droppedItem.position);
+                scene.add(spark);
+                const sparkVel = new THREE.Vector3(
+                  (Math.random() - 0.5) * 8,
+                  Math.random() * 6,
+                  (Math.random() - 0.5) * 8
+                );
+                spark.userData.vel = sparkVel;
+                spark.userData.life = 0;
+                const sparkTimer = setInterval(() => {
+                  spark.position.add(spark.userData.vel.clone().multiplyScalar(0.05));
+                  spark.userData.vel.y -= 0.3;
+                  spark.userData.life++;
+                  if (spark.userData.life > 12) {
+                    scene.remove(spark);
+                    clearInterval(sparkTimer);
+                  }
+                }, 50);
+              }
               
-              // Animate the spark
-              const sparkTimer = setInterval(() => {
-                spark.position.add(spark.userData.vel.clone().multiplyScalar(0.05));
-                spark.userData.vel.y -= 0.5; // gravity on sparks
-                spark.userData.life++;
-                if (spark.userData.life > 20) {
-                  scene.remove(spark);
-                  clearInterval(sparkTimer);
-                }
-              }, 50);
+              // Remove item and bullet
+              scene.remove(droppedItem);
+              droppedItems.splice(d, 1);
+              scene.remove(bullet);
+              bullets.splice(i, 1);
+              break;
             }
-
-            // Drop item from destroyed block!
-            const blockPos = block.position.clone();
-            const blockColor = block.material.color.getHex();
-            spawnDroppedItem('stone', blockPos, blockColor);
-
-            // Remove block and bullet
-            scene.remove(block);
-            blocks.splice(j, 1);
-            scene.remove(bullet);
-          bullets.splice(i, 1);
-
-            // Update score!
-            score++;
-            scoreDisplay.textContent = score;
-
-            // Show big floating "Score +1!" at explosion!
-            showScorePopup(blockPos);
-
-            // Spawn a new block after 2 seconds
-            setTimeout(spawnRandomBlock, 2000);
-            break;
           }
         }
+        // ===== END SHOOT-TO-PICKUP =====
 
         // Check if bullet hit any tree part (trunk or leaf)
         for (let t = treeParts.length - 1; t >= 0; t--) {
