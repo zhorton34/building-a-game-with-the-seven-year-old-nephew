@@ -100,6 +100,103 @@
       float: right;
       color: #ffff00;
     }
+    /* ===== HEALTH & HUNGER BARS ===== */
+    #status-bars {
+      position: fixed;
+      bottom: 85px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 20px;
+      z-index: 100;
+    }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-bar-label {
+      font-size: 20px;
+    }
+    .status-bar-container {
+      width: 200px;
+      height: 20px;
+      background: #333;
+      border: 2px solid #555;
+      display: flex;
+    }
+    .heart, .hunger-icon {
+      width: 18px;
+      height: 18px;
+      margin: 1px;
+      transition: opacity 0.3s;
+    }
+    .heart { background: #ff0000; clip-path: path('M9 2C5 -1 0 3 0 7c0 6 9 11 9 11s9-5 9-11c0-4-5-8-9-5z'); }
+    .heart.empty { background: #333; }
+    .heart.half { background: linear-gradient(90deg, #ff0000 50%, #333 50%); }
+    .hunger-icon { background: #8B4513; border-radius: 50%; }
+    .hunger-icon.empty { background: #333; }
+    .hunger-icon.half { background: linear-gradient(90deg, #8B4513 50%, #333 50%); }
+    /* ===== CRAFTING MENU ===== */
+    #craftingMenu {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+    #craftingMenu.active { display: flex; }
+    .crafting-box {
+      background: linear-gradient(180deg, #4a4a4a 0%, #2d2d2d 100%);
+      border: 4px solid #6b6b6b;
+      padding: 30px;
+      min-width: 400px;
+    }
+    .crafting-title {
+      font-size: 28px;
+      color: #fff;
+      text-align: center;
+      margin-bottom: 20px;
+      text-shadow: 3px 3px 0 #000;
+    }
+    .recipe-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .recipe-item {
+      background: #3a3a3a;
+      border: 2px solid #555;
+      padding: 15px;
+      margin: 10px 0;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .recipe-item:hover { background: #4a4a4a; border-color: #777; }
+    .recipe-item.can-craft { border-color: #4a4; }
+    .recipe-item.cannot-craft { opacity: 0.5; }
+    .recipe-ingredients { color: #aaa; font-size: 14px; }
+    .recipe-result { color: #ffff00; font-size: 18px; }
+    /* ===== DAMAGE OVERLAY ===== */
+    #damageOverlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255, 0, 0, 0);
+      pointer-events: none;
+      z-index: 500;
+      transition: background 0.1s;
+    }
+    /* ===== BLOCK DAMAGE INDICATOR ===== */
+    .damage-crack {
+      position: absolute;
+      font-size: 60px;
+      color: rgba(0,0,0,0.5);
+      pointer-events: none;
+      z-index: 100;
+    }
     /* ===== INVENTORY HOTBAR ===== */
     #hotbar {
       position: fixed;
@@ -150,8 +247,30 @@
   </style>
 </head>
 <body>
-  <div id="info">Arrows = Move • WASD/Mouse = Aim • Z = Shoot • X = Place • Space = Jump • Esc = Menu<br>Score: <span id="score">0</span> 🎯</div>
+  <div id="info">Arrows = Move • WASD/Mouse = Aim • Click/Z = Mine • X = Place • C = Craft • Esc = Menu<br>Score: <span id="score">0</span> 🎯</div>
   <div id="crosshair">+</div>
+  <div id="damageOverlay"></div>
+
+  <!-- Health & Hunger Bars -->
+  <div id="status-bars">
+    <div class="status-bar">
+      <span class="status-bar-label">❤️</span>
+      <div class="status-bar-container" id="health-bar"></div>
+    </div>
+    <div class="status-bar">
+      <span class="status-bar-label">🍖</span>
+      <div class="status-bar-container" id="hunger-bar"></div>
+    </div>
+  </div>
+
+  <!-- Crafting Menu -->
+  <div id="craftingMenu">
+    <div class="crafting-box">
+      <div class="crafting-title">⚒️ CRAFTING ⚒️</div>
+      <div class="recipe-list" id="recipeList"></div>
+      <button class="menu-btn" id="closeCraftingBtn">❌ CLOSE (C)</button>
+    </div>
+  </div>
 
   <!-- Inventory Hotbar -->
   <div id="hotbar">
@@ -1068,6 +1187,435 @@
       // soundEnabled: true,
     };
 
+    // ===== PLAYER STATS SYSTEM =====
+    const player = {
+      health: 20,
+      maxHealth: 10, // 10 hearts (each heart = 2 HP)
+      hunger: 20,
+      maxHunger: 10, // 10 drumsticks (each = 2)
+      lastY: 5, // For fall damage calculation
+      fallDistance: 0,
+    };
+
+    // Initialize health & hunger bar UI
+    const healthBar = document.getElementById('health-bar');
+    const hungerBar = document.getElementById('hunger-bar');
+    const damageOverlay = document.getElementById('damageOverlay');
+
+    function updateHealthBar() {
+      healthBar.innerHTML = '';
+      for (let i = 0; i < player.maxHealth; i++) {
+        const heart = document.createElement('div');
+        heart.className = 'heart';
+        const hp = player.health - (i * 2);
+        if (hp <= 0) heart.classList.add('empty');
+        else if (hp === 1) heart.classList.add('half');
+        healthBar.appendChild(heart);
+      }
+    }
+
+    function updateHungerBar() {
+      hungerBar.innerHTML = '';
+      for (let i = 0; i < player.maxHunger; i++) {
+        const icon = document.createElement('div');
+        icon.className = 'hunger-icon';
+        const hunger = player.hunger - (i * 2);
+        if (hunger <= 0) icon.classList.add('empty');
+        else if (hunger === 1) icon.classList.add('half');
+        hungerBar.appendChild(icon);
+      }
+    }
+
+    function takeDamage(amount) {
+      player.health = Math.max(0, player.health - amount);
+      updateHealthBar();
+      // Flash red overlay
+      damageOverlay.style.background = 'rgba(255, 0, 0, 0.4)';
+      setTimeout(() => damageOverlay.style.background = 'rgba(255, 0, 0, 0)', 200);
+      
+      if (player.health <= 0) {
+        // Game over - respawn
+        alert('💀 You died! Respawning...');
+        player.health = 20;
+        player.hunger = 20;
+        camera.position.set(0, 5, 0);
+        updateHealthBar();
+        updateHungerBar();
+      }
+    }
+
+    function heal(amount) {
+      player.health = Math.min(20, player.health + amount);
+      updateHealthBar();
+    }
+
+    function eat(foodValue) {
+      player.hunger = Math.min(20, player.hunger + foodValue);
+      updateHungerBar();
+    }
+
+    // Initialize bars
+    updateHealthBar();
+    updateHungerBar();
+
+    // Hunger decreases over time
+    setInterval(() => {
+      if (!isPaused && controls.isLocked) {
+        player.hunger = Math.max(0, player.hunger - 1);
+        updateHungerBar();
+        
+        // Regenerate health if hunger > 16 (like Minecraft)
+        if (player.hunger > 16 && player.health < 20) {
+          heal(1);
+        }
+        // Take damage if starving
+        if (player.hunger <= 0) {
+          takeDamage(1);
+        }
+      }
+    }, 5000); // Every 5 seconds
+
+    // ===== BLOCK HARDNESS SYSTEM =====
+    // Different blocks take different amounts of hits to break
+    const blockHardness = {
+      dirt: 2,
+      wood: 4,
+      stone: 6,
+      leaves: 1,
+      treasure: 8,
+      default: 3,
+    };
+
+    // Track block damage (for mining)
+    const blockDamageMap = new Map(); // mesh -> { damage: number, crackMesh: THREE.Mesh }
+
+    // Create crack texture for damaged blocks
+    function createCrackOverlay(block, damagePercent) {
+      // Remove existing crack if any
+      const existing = blockDamageMap.get(block);
+      if (existing && existing.crackMesh) {
+        scene.remove(existing.crackMesh);
+      }
+      
+      // Create crack overlay (wireframe that gets denser)
+      const crackGeo = block.geometry.clone();
+      const crackMat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        wireframe: true,
+        transparent: true,
+        opacity: damagePercent * 0.8,
+      });
+      const crackMesh = new THREE.Mesh(crackGeo, crackMat);
+      crackMesh.position.copy(block.position);
+      crackMesh.scale.multiplyScalar(1.01); // Slightly larger to prevent z-fighting
+      scene.add(crackMesh);
+      
+      return crackMesh;
+    }
+
+    // ===== DAY/NIGHT CYCLE =====
+    let timeOfDay = 0; // 0-1, 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+    const dayLength = 120; // 2 minutes per full day/night cycle
+
+    function updateDayNightCycle(delta) {
+      timeOfDay += delta / dayLength;
+      if (timeOfDay > 1) timeOfDay -= 1;
+      
+      // Calculate sky color based on time
+      let skyColor, fogColor, sunIntensity;
+      
+      if (timeOfDay < 0.2) {
+        // Night (0-0.2)
+        skyColor = new THREE.Color(0x0a0a20);
+        fogColor = new THREE.Color(0x0a0a20);
+        sunIntensity = 0.1;
+      } else if (timeOfDay < 0.3) {
+        // Sunrise (0.2-0.3)
+        const t = (timeOfDay - 0.2) / 0.1;
+        skyColor = new THREE.Color(0x0a0a20).lerp(new THREE.Color(0xff8844), t);
+        fogColor = new THREE.Color(0x0a0a20).lerp(new THREE.Color(0xff8844), t);
+        sunIntensity = 0.1 + t * 0.5;
+      } else if (timeOfDay < 0.4) {
+        // Morning (0.3-0.4)
+        const t = (timeOfDay - 0.3) / 0.1;
+        skyColor = new THREE.Color(0xff8844).lerp(new THREE.Color(0x87ceeb), t);
+        fogColor = new THREE.Color(0xff8844).lerp(new THREE.Color(0x87ceeb), t);
+        sunIntensity = 0.6 + t * 0.4;
+      } else if (timeOfDay < 0.7) {
+        // Day (0.4-0.7)
+        skyColor = new THREE.Color(0x87ceeb);
+        fogColor = new THREE.Color(0x87ceeb);
+        sunIntensity = 1.0;
+      } else if (timeOfDay < 0.8) {
+        // Sunset (0.7-0.8)
+        const t = (timeOfDay - 0.7) / 0.1;
+        skyColor = new THREE.Color(0x87ceeb).lerp(new THREE.Color(0xff6633), t);
+        fogColor = new THREE.Color(0x87ceeb).lerp(new THREE.Color(0xff6633), t);
+        sunIntensity = 1.0 - t * 0.4;
+      } else if (timeOfDay < 0.9) {
+        // Dusk (0.8-0.9)
+        const t = (timeOfDay - 0.8) / 0.1;
+        skyColor = new THREE.Color(0xff6633).lerp(new THREE.Color(0x1a1a40), t);
+        fogColor = new THREE.Color(0xff6633).lerp(new THREE.Color(0x1a1a40), t);
+        sunIntensity = 0.6 - t * 0.4;
+      } else {
+        // Night (0.9-1.0)
+        const t = (timeOfDay - 0.9) / 0.1;
+        skyColor = new THREE.Color(0x1a1a40).lerp(new THREE.Color(0x0a0a20), t);
+        fogColor = new THREE.Color(0x1a1a40).lerp(new THREE.Color(0x0a0a20), t);
+        sunIntensity = 0.2 - t * 0.1;
+      }
+      
+      scene.background = skyColor;
+      scene.fog.color = fogColor;
+      sun.intensity = sunIntensity;
+    }
+
+    // ===== CRAFTING SYSTEM =====
+    const recipes = [
+      { name: 'Wooden Planks', result: 'wood', resultCount: 4, ingredients: { wood: 1 }, icon: '🪵' },
+      { name: 'Stone Bricks', result: 'stone', resultCount: 4, ingredients: { stone: 4 }, icon: '🧱' },
+      { name: 'Torch', result: 'torch', resultCount: 4, ingredients: { wood: 1, stone: 1 }, icon: '🔦' },
+      { name: 'Cooked Meat', result: 'food', resultCount: 1, ingredients: { wood: 2 }, icon: '🍖' },
+      { name: 'Golden Block', result: 'treasure', resultCount: 1, ingredients: { treasure: 9 }, icon: '🏆' },
+    ];
+
+    // Add food to itemTypes
+    itemTypes.food = { name: 'Cooked Meat', color: 0xcc6633, icon: '🍖' };
+    itemTypes.torch = { name: 'Torch', color: 0xffaa00, icon: '🔦' };
+    itemColors.food = 0xcc6633;
+    itemColors.torch = 0xffaa00;
+
+    const craftingMenu = document.getElementById('craftingMenu');
+    const recipeList = document.getElementById('recipeList');
+    const closeCraftingBtn = document.getElementById('closeCraftingBtn');
+    let isCrafting = false;
+
+    function canCraft(recipe) {
+      for (const [item, count] of Object.entries(recipe.ingredients)) {
+        const total = inventory.slots.reduce((sum, slot) => 
+          slot && slot.type === item ? sum + slot.count : sum, 0);
+        if (total < count) return false;
+      }
+      return true;
+    }
+
+    function craft(recipe) {
+      if (!canCraft(recipe)) return false;
+      
+      // Remove ingredients
+      for (const [item, count] of Object.entries(recipe.ingredients)) {
+        let remaining = count;
+        for (let i = 0; i < inventory.slots.length && remaining > 0; i++) {
+          const slot = inventory.slots[i];
+          if (slot && slot.type === item) {
+            const remove = Math.min(slot.count, remaining);
+            slot.count -= remove;
+            remaining -= remove;
+            if (slot.count <= 0) inventory.slots[i] = null;
+          }
+        }
+      }
+      
+      // Add result
+      addToInventory(recipe.result, recipe.resultCount);
+      updateHotbarUI();
+      updateRecipeList();
+      return true;
+    }
+
+    function updateRecipeList() {
+      recipeList.innerHTML = '';
+      recipes.forEach((recipe, index) => {
+        const canMake = canCraft(recipe);
+        const div = document.createElement('div');
+        div.className = `recipe-item ${canMake ? 'can-craft' : 'cannot-craft'}`;
+        
+        const ingredients = Object.entries(recipe.ingredients)
+          .map(([item, count]) => `${count}x ${item}`)
+          .join(' + ');
+        
+        div.innerHTML = `
+          <div>
+            <div class="recipe-result">${recipe.icon} ${recipe.name} (x${recipe.resultCount})</div>
+            <div class="recipe-ingredients">${ingredients}</div>
+          </div>
+          <div style="font-size: 24px">${canMake ? '✅' : '❌'}</div>
+        `;
+        
+        div.onclick = () => craft(recipe);
+        recipeList.appendChild(div);
+      });
+    }
+
+    function toggleCrafting() {
+      isCrafting = !isCrafting;
+      if (isCrafting) {
+        craftingMenu.classList.add('active');
+        controls.unlock();
+        updateRecipeList();
+      } else {
+        craftingMenu.classList.remove('active');
+        if (!isPaused) controls.lock();
+      }
+    }
+
+    closeCraftingBtn.onclick = toggleCrafting;
+
+    // ===== MINING SYSTEM =====
+    let isMining = false;
+    let mineTarget = null;
+    let mineAccumulator = 0;
+    const mineRate = 2; // Damage per second while mining
+
+    // Get target block from raycaster
+    function getMineTarget() {
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      
+      // Check blocks
+      const blockHits = raycaster.intersectObjects(blocks);
+      if (blockHits.length > 0 && blockHits[0].distance < 8) {
+        return { type: 'block', object: blockHits[0].object, hardness: blockHardness.default };
+      }
+      
+      // Check tree parts
+      const treeHits = raycaster.intersectObjects(treeParts.filter(p => p.parent));
+      if (treeHits.length > 0 && treeHits[0].distance < 8) {
+        const part = treeHits[0].object;
+        const type = part.userData.type === 'leaf' ? 'leaves' : 'wood';
+        return { type: 'tree', object: part, hardness: blockHardness[type] };
+      }
+      
+      // Check cave parts
+      const caveHits = raycaster.intersectObjects(caveParts.filter(p => p.parent));
+      if (caveHits.length > 0 && caveHits[0].distance < 8) {
+        const part = caveHits[0].object;
+        const type = part.userData.type === 'treasure' ? 'treasure' : 'stone';
+        return { type: 'cave', object: part, hardness: blockHardness[type] };
+      }
+      
+      return null;
+    }
+
+    function updateMining(delta) {
+      if (!isMining || isPaused || isCrafting) return;
+      
+      const target = getMineTarget();
+      if (!target) {
+        mineTarget = null;
+        mineAccumulator = 0;
+        return;
+      }
+      
+      // If target changed, reset
+      if (mineTarget !== target.object) {
+        // Clear old target's damage
+        if (mineTarget && blockDamageMap.has(mineTarget)) {
+          const data = blockDamageMap.get(mineTarget);
+          if (data.crackMesh) scene.remove(data.crackMesh);
+          blockDamageMap.delete(mineTarget);
+        }
+        mineTarget = target.object;
+        mineAccumulator = 0;
+      }
+      
+      // Accumulate mining damage
+      mineAccumulator += mineRate * delta;
+      
+      // Get or create damage data
+      let damageData = blockDamageMap.get(mineTarget);
+      if (!damageData) {
+        damageData = { damage: 0, crackMesh: null };
+        blockDamageMap.set(mineTarget, damageData);
+      }
+      
+      damageData.damage = mineAccumulator;
+      const damagePercent = damageData.damage / target.hardness;
+      
+      // Update crack overlay
+      damageData.crackMesh = createCrackOverlay(mineTarget, damagePercent);
+      blockDamageMap.set(mineTarget, damageData);
+      
+      // Check if block is broken
+      if (damageData.damage >= target.hardness) {
+        breakBlock(target);
+        if (damageData.crackMesh) scene.remove(damageData.crackMesh);
+        blockDamageMap.delete(mineTarget);
+        mineTarget = null;
+        mineAccumulator = 0;
+      }
+    }
+
+    function breakBlock(target) {
+      const obj = target.object;
+      const worldPos = new THREE.Vector3();
+      obj.getWorldPosition(worldPos);
+      
+      // Spawn particles
+      const particleColor = obj.material.color ? obj.material.color.getHex() : 0x888888;
+      for (let s = 0; s < 6; s++) {
+        const spark = new THREE.Mesh(
+          new THREE.SphereGeometry(0.2),
+          new THREE.MeshBasicMaterial({ color: particleColor })
+        );
+        spark.position.copy(worldPos);
+        scene.add(spark);
+        
+        const sparkVel = new THREE.Vector3(
+          (Math.random() - 0.5) * 10,
+          Math.random() * 8,
+          (Math.random() - 0.5) * 10
+        );
+        spark.userData.vel = sparkVel;
+        spark.userData.life = 0;
+        
+        const sparkTimer = setInterval(() => {
+          spark.position.add(spark.userData.vel.clone().multiplyScalar(0.05));
+          spark.userData.vel.y -= 0.4;
+          spark.userData.life++;
+          if (spark.userData.life > 15) {
+            scene.remove(spark);
+            clearInterval(sparkTimer);
+          }
+        }, 50);
+      }
+      
+      // Drop item based on type
+      let dropType = 'stone';
+      if (target.type === 'block') {
+        dropType = 'stone';
+        spawnDroppedItem(dropType, worldPos, obj.material.color.getHex());
+        scene.remove(obj);
+        const idx = blocks.indexOf(obj);
+        if (idx > -1) blocks.splice(idx, 1);
+      } else if (target.type === 'tree') {
+        dropType = obj.userData.type === 'leaf' ? 'leaves' : 'wood';
+        spawnDroppedItem(dropType, worldPos);
+        const parent = obj.userData.parentTree;
+        if (parent) parent.remove(obj);
+        const idx = treeParts.indexOf(obj);
+        if (idx > -1) treeParts.splice(idx, 1);
+      } else if (target.type === 'cave') {
+        dropType = obj.userData.type === 'treasure' ? 'treasure' : 'stone';
+        spawnDroppedItem(dropType, worldPos);
+        const parent = obj.userData.parentCave;
+        if (parent) parent.remove(obj);
+        const idx = caveParts.indexOf(obj);
+        if (idx > -1) caveParts.splice(idx, 1);
+      }
+      
+      // Score
+      const points = dropType === 'treasure' ? 5 : 1;
+      score += points;
+      scoreDisplay.textContent = score;
+      showScorePopup(worldPos);
+    }
+
+    // ===== TOOL DURABILITY =====
+    // For simplicity, we'll track durability on the selected item
+    // This can be expanded later with proper tool items
+
     // Pause menu elements
     const pauseMenu = document.getElementById('pauseMenu');
     const resumeBtn = document.getElementById('resumeBtn');
@@ -1110,14 +1658,24 @@
 
     // Controls
     document.addEventListener('keydown', e => {
-      // Pause menu toggle (works anytime)
+      // Pause menu toggle (works anytime, closes crafting first)
       if (e.code === 'Escape' || e.code === 'KeyP') {
-        togglePause();
+        if (isCrafting) {
+          toggleCrafting();
+        } else {
+          togglePause();
+        }
         return;
       }
 
-      // Don't process game controls if paused
-      if (isPaused) return;
+      // Crafting menu toggle
+      if (e.code === 'KeyC') {
+        if (!isPaused) toggleCrafting();
+        return;
+      }
+
+      // Don't process game controls if paused or crafting
+      if (isPaused || isCrafting) return;
 
       switch (e.code) {
         // Arrow keys = MOVE
@@ -1132,10 +1690,12 @@
         case 'KeyD': aimRight = true; break;
         // Jump
         case 'Space': if (canJump) velocity.y += 18; canJump = false; break;
-        // Shoot with Z key!
-        case 'KeyZ': if (controls.isLocked) shoot(); break;
+        // Mine with Z key (hold)
+        case 'KeyZ': if (controls.isLocked) isMining = true; break;
         // Place block (X key)
         case 'KeyX': if (controls.isLocked) placeBlock(); break;
+        // Eat food (F key)
+        case 'KeyF': eatFood(); break;
         // Hotbar selection (1-9)
         case 'Digit1': selectSlot(0); break;
         case 'Digit2': selectSlot(1); break;
@@ -1160,13 +1720,44 @@
         case 'KeyS': aimDown = false; break;
         case 'KeyA': aimLeft = false; break;
         case 'KeyD': aimRight = false; break;
+        // Stop mining
+        case 'KeyZ': isMining = false; break;
       }
     });
-    document.addEventListener('click', (e) => {
-      // Don't shoot if clicking menu or paused
-      if (isPaused || e.target.closest('#pauseMenu')) return;
-      if (controls.isLocked) shoot();
+    
+    // Mouse down = start mining
+    document.addEventListener('mousedown', (e) => {
+      if (isPaused || isCrafting || e.target.closest('#pauseMenu') || e.target.closest('#craftingMenu')) return;
+      if (controls.isLocked && e.button === 0) {
+        isMining = true;
+      }
     });
+    
+    // Mouse up = stop mining
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 0) {
+        isMining = false;
+      }
+    });
+    
+    // Eat food function
+    function eatFood() {
+      // Find food in inventory and eat it
+      for (let i = 0; i < inventory.slots.length; i++) {
+        const slot = inventory.slots[i];
+        if (slot && slot.type === 'food') {
+          eat(6); // Cooked meat restores 6 hunger points (3 drumsticks)
+          slot.count--;
+          if (slot.count <= 0) inventory.slots[i] = null;
+          updateHotbarUI();
+          updateHeldItem();
+          
+          // Show eating effect
+          showItemPickupPopup('food', camera.position);
+          return;
+        }
+      }
+    }
 
     // Animation loop
     const clock = new THREE.Clock();
@@ -1174,13 +1765,19 @@
       requestAnimationFrame(animate);
       const delta = clock.getDelta();
 
+      // Day/night cycle (always runs)
+      updateDayNightCycle(delta);
+
       // Animate water (always runs, even when paused - looks nice!)
       animateWater(delta);
 
       // Animate dropped items (bobbing, spinning, magnetic pickup)
       animateDroppedItems(delta);
 
-      if (controls.isLocked && !isPaused) {
+      // Mining system
+      updateMining(delta);
+
+      if (controls.isLocked && !isPaused && !isCrafting) {
         // WASD aiming - simulate mouse movement for PointerLockControls
         // This works properly with the controls instead of conflicting
         const aimSpeed = settings.aimSensitivity * 50; // Scale for smooth movement
@@ -1225,9 +1822,47 @@
         }
 
         camera.position.y += velocity.y * delta;
-        if (camera.position.y < 5) {
+        
+        // Check for ground (including placed blocks!)
+        let groundHeight = 5; // Default ground level (player eye height)
+        const playerX = camera.position.x;
+        const playerZ = camera.position.z;
+        
+        // Check if standing on any block
+        for (const block of blocks) {
+          const dx = playerX - block.position.x;
+          const dz = playerZ - block.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          
+          // If player is on top of block (within horizontal bounds)
+          if (dist < 2.5) {
+            const blockTop = block.position.y + 2; // Block is 4 units tall, center at block.position.y
+            const playerFeet = camera.position.y - 4; // Player feet (eye height is 5, so feet are at y=1 normally)
+            
+            // If player is falling onto block
+            if (playerFeet <= blockTop + 0.5 && playerFeet >= blockTop - 1 && velocity.y <= 0) {
+              groundHeight = blockTop + 4; // Set ground to block top + eye height
+            }
+          }
+        }
+        
+        // Fall damage calculation
+        if (velocity.y < 0) {
+          // Track falling
+          player.fallDistance += Math.abs(velocity.y * delta);
+        }
+        
+        if (camera.position.y < groundHeight) {
+          // Landed!
+          // Calculate fall damage (like Minecraft: damage = fallDistance - 3)
+          if (player.fallDistance > 3) {
+            const damage = Math.floor(player.fallDistance - 3);
+            takeDamage(damage);
+          }
+          
+          player.fallDistance = 0;
           velocity.y = 0;
-          camera.position.y = 5;
+          camera.position.y = groundHeight;
           canJump = true;
         }
       }
@@ -1280,7 +1915,7 @@
             scene.remove(block);
             blocks.splice(j, 1);
             scene.remove(bullet);
-            bullets.splice(i, 1);
+          bullets.splice(i, 1);
 
             // Update score!
             score++;
