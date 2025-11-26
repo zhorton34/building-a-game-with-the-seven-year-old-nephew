@@ -247,7 +247,7 @@
   </style>
 </head>
 <body>
-  <div id="info">Arrows = Move • WASD/Mouse = Aim • Click/Z = Mine • X = Place • C = Craft • Esc = Menu<br>Score: <span id="score">0</span> 🎯</div>
+  <div id="info">Arrows = Move • WASD/Mouse = Aim • Left-Click/Z = Mine • Right-Click = Shoot • X = Place • F = Eat • C = Craft • Esc = Menu<br>Score: <span id="score">0</span> 🎯</div>
   <div id="crosshair">+</div>
   <div id="damageOverlay"></div>
 
@@ -298,6 +298,21 @@
       <div class="menu-setting">
         <label>Crosshair Size <span class="setting-value" id="crosshairValue">30</span></label>
         <input type="range" id="crosshairSlider" min="15" max="60" step="1" value="30">
+      </div>
+
+      <div class="menu-setting" style="border-top: 2px solid #555; padding-top: 15px; margin-top: 15px;">
+        <label>🌞 Time of Day <span class="setting-value" id="timeValue">12:00</span></label>
+        <input type="range" id="timeSlider" min="0" max="1" step="0.01" value="0.5">
+      </div>
+
+      <div class="menu-setting">
+        <label>⏱️ Day Speed <span class="setting-value" id="speedValue">Normal</span></label>
+        <input type="range" id="speedSlider" min="0" max="3" step="1" value="1">
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <button class="menu-btn" id="setDayBtn" style="flex: 1;">☀️ SET DAY</button>
+        <button class="menu-btn" id="setNightBtn" style="flex: 1;">🌙 SET NIGHT</button>
       </div>
 
       <button class="menu-btn" id="resumeBtn">▶️ RESUME</button>
@@ -679,6 +694,69 @@
     sun.castShadow = true;
     scene.add(sun);
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+    // ===== SUN & MOON VISUALS =====
+    const SKY_RADIUS = 150; // Distance from player to sun/moon
+    
+    // Create the SUN - big glowing orange ball!
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(15, 32, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xffdd44,
+        transparent: true,
+        opacity: 1,
+      })
+    );
+    // Sun glow effect (bigger transparent sphere around it)
+    const sunGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(25, 32, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xffaa00,
+        transparent: true,
+        opacity: 0.3,
+      })
+    );
+    sunMesh.add(sunGlow);
+    scene.add(sunMesh);
+    
+    // Create the MOON - silvery white ball with halo ring!
+    const moonMesh = new THREE.Group();
+    
+    // Moon sphere
+    const moonSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(12, 32, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xeeeeee,
+        transparent: true,
+        opacity: 1,
+      })
+    );
+    moonMesh.add(moonSphere);
+    
+    // Moon glow effect
+    const moonGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(18, 32, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xaaaaff,
+        transparent: true,
+        opacity: 0.2,
+      })
+    );
+    moonMesh.add(moonGlow);
+    
+    // Moon halo ring - sparkly ring around the moon!
+    const moonHalo = new THREE.Mesh(
+      new THREE.RingGeometry(14, 18, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.3,
+      })
+    );
+    moonMesh.add(moonHalo);
+    
+    scene.add(moonMesh);
 
     // Player stuff
     camera.position.set(0, 5, 10);
@@ -1314,12 +1392,58 @@
     }
 
     // ===== DAY/NIGHT CYCLE =====
-    let timeOfDay = 0; // 0-1, 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
-    const dayLength = 120; // 2 minutes per full day/night cycle
+    let timeOfDay = 0.4; // 0-1, 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset (start at day!)
+    let dayLength = 120; // 2 minutes per full day/night cycle (can be changed in settings)
+    let daySpeed = 1; // Multiplier for day speed (0 = paused, 0.5 = slow, 1 = normal, 2 = fast)
 
     function updateDayNightCycle(delta) {
-      timeOfDay += delta / dayLength;
+      // Update time based on speed setting
+      timeOfDay += (delta / dayLength) * daySpeed;
       if (timeOfDay > 1) timeOfDay -= 1;
+      if (timeOfDay < 0) timeOfDay += 1;
+      
+      // ===== ANIMATE SUN & MOON POSITIONS =====
+      // Sun angle: 0 at midnight (below), 0.5 at noon (above)
+      // timeOfDay 0.25 = sunrise (east), 0.5 = noon (top), 0.75 = sunset (west)
+      const sunAngle = (timeOfDay - 0.25) * Math.PI * 2; // Full rotation
+      const sunX = Math.sin(sunAngle) * SKY_RADIUS;
+      const sunY = Math.cos(sunAngle) * SKY_RADIUS;
+      
+      // Position sun relative to camera (follows player)
+      sunMesh.position.set(
+        camera.position.x + sunX,
+        sunY,
+        camera.position.z - 50
+      );
+      
+      // Moon is opposite the sun
+      moonMesh.position.set(
+        camera.position.x - sunX,
+        -sunY,
+        camera.position.z - 50
+      );
+      
+      // Spin the moon for a sparkly effect!
+      moonMesh.rotation.y += delta * 0.2;
+      
+      // Fade sun/moon based on position (below horizon = invisible)
+      sunMesh.visible = sunY > -20;
+      moonMesh.visible = -sunY > -20;
+      
+      // Adjust sun color based on time (orange at sunrise/sunset, yellow at noon)
+      if (timeOfDay > 0.2 && timeOfDay < 0.4) {
+        // Sunrise - orange
+        sunMesh.material.color.setHex(0xff8844);
+        sunGlow.material.color.setHex(0xff6600);
+      } else if (timeOfDay > 0.7 && timeOfDay < 0.9) {
+        // Sunset - orange/red
+        sunMesh.material.color.setHex(0xff6633);
+        sunGlow.material.color.setHex(0xff4400);
+      } else {
+        // Daytime - bright yellow
+        sunMesh.material.color.setHex(0xffdd44);
+        sunGlow.material.color.setHex(0xffaa00);
+      }
       
       // Calculate sky color based on time
       let skyColor, fogColor, sunIntensity;
@@ -1369,6 +1493,13 @@
       scene.background = skyColor;
       scene.fog.color = fogColor;
       sun.intensity = sunIntensity;
+      
+      // Update time display in settings if menu is open
+      if (isPaused && timeValueEl) {
+        const hours = Math.floor(timeOfDay * 24);
+        const mins = Math.floor((timeOfDay * 24 * 60) % 60);
+        timeValueEl.textContent = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+      }
     }
 
     // ===== CRAFTING SYSTEM =====
@@ -1624,6 +1755,15 @@
     const sensValue = document.getElementById('sensValue');
     const crosshairValue = document.getElementById('crosshairValue');
     const crosshairEl = document.getElementById('crosshair');
+    
+    // Time settings elements
+    const timeSlider = document.getElementById('timeSlider');
+    const speedSlider = document.getElementById('speedSlider');
+    const timeValueEl = document.getElementById('timeValue');
+    const speedValueEl = document.getElementById('speedValue');
+    const setDayBtn = document.getElementById('setDayBtn');
+    const setNightBtn = document.getElementById('setNightBtn');
+    
     let isPaused = false;
 
     function togglePause() {
@@ -1647,6 +1787,36 @@
       settings.crosshairSize = parseInt(e.target.value);
       crosshairValue.textContent = settings.crosshairSize;
       crosshairEl.style.fontSize = settings.crosshairSize + 'px';
+    });
+
+    // Time of Day slider
+    timeSlider.addEventListener('input', (e) => {
+      timeOfDay = parseFloat(e.target.value);
+      const hours = Math.floor(timeOfDay * 24);
+      const mins = Math.floor((timeOfDay * 24 * 60) % 60);
+      timeValueEl.textContent = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    });
+
+    // Day Speed slider
+    const speedLabels = ['⏸️ Paused', '🐢 Slow', '🚶 Normal', '🚀 Fast'];
+    const speedMultipliers = [0, 0.25, 1, 4];
+    speedSlider.addEventListener('input', (e) => {
+      const speedIndex = parseInt(e.target.value);
+      daySpeed = speedMultipliers[speedIndex];
+      speedValueEl.textContent = speedLabels[speedIndex];
+    });
+
+    // Quick time buttons
+    setDayBtn.addEventListener('click', () => {
+      timeOfDay = 0.5; // Noon
+      timeSlider.value = 0.5;
+      timeValueEl.textContent = '12:00';
+    });
+
+    setNightBtn.addEventListener('click', () => {
+      timeOfDay = 0.0; // Midnight
+      timeSlider.value = 0.0;
+      timeValueEl.textContent = '00:00';
     });
 
     resumeBtn.addEventListener('click', () => {
@@ -1725,11 +1895,22 @@
       }
     });
     
-    // Mouse down = start mining
+    // Mouse down = start mining (left-click) or shoot (right-click)
     document.addEventListener('mousedown', (e) => {
       if (isPaused || isCrafting || e.target.closest('#pauseMenu') || e.target.closest('#craftingMenu')) return;
-      if (controls.isLocked && e.button === 0) {
-        isMining = true;
+      if (controls.isLocked) {
+        if (e.button === 0) {
+          isMining = true; // Left-click = mine
+        } else if (e.button === 2) {
+          shoot(); // Right-click = shoot!
+        }
+      }
+    });
+    
+    // Prevent context menu on right-click (so we can shoot!)
+    document.addEventListener('contextmenu', (e) => {
+      if (controls.isLocked) {
+        e.preventDefault();
       }
     });
     
